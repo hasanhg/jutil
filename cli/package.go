@@ -20,6 +20,7 @@ var (
 	jdk      string
 	platform string
 	arch     string
+	clean    bool
 	temp     = "temp"
 
 	packageCmd = &cobra.Command{
@@ -30,6 +31,11 @@ var (
 			if jar == "" || out == "" || jdk == "" {
 				cmd.Usage()
 				return
+			}
+
+			if clean {
+				os.RemoveAll(out)
+				os.RemoveAll(temp)
 			}
 
 			os.Mkdir(filepath.Join(temp), 0777)
@@ -209,6 +215,7 @@ func init() {
 	packageCmd.Flags().StringVar(&jdk, "jdk", "", "JDK path")
 	packageCmd.Flags().StringVar(&platform, "platform", runtime.GOOS, "Operating system")
 	packageCmd.Flags().StringVar(&arch, "arch", runtime.GOARCH, "Operating system architecture")
+	packageCmd.Flags().BoolVar(&clean, "clean", false, "Clean packaging")
 
 	rootCmd.AddCommand(packageCmd)
 
