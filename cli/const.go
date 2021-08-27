@@ -25,16 +25,29 @@ var (
 )
 
 func main() {
-		
+	var (
+		err error = nil
+	)
+
+	for {
+		force := err != nil
+		err = run(force)
+		if force && err != nil {
+			log.Fatal(err)
+		}
+	}
+}
+
+func run(force bool) error {
 	name := FileNameWithoutExtSliceNotation(filepath.Base("%s"))
 	dir := TempDir()
 
 	jar := filepath.Join(dir, temp, name+".jar")
-	if !DirExists(filepath.Join(dir, temp)) {
+	if force || !DirExists(filepath.Join(dir, temp)) {
 		ReadDir(temp+"/jre", dir)
 		d, err := Asset(temp+"/"+name+".jar")
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
 
 		ioutil.WriteFile(jar, d, 0777)
@@ -54,9 +67,10 @@ func main() {
 	c.Stdout = os.Stdout
 	err := c.Run()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	return
+
+	return nil
 }
 
 func ReadDir(name, dir string) {
