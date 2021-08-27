@@ -27,10 +27,7 @@ var (
 func main() {
 		
 	name := FileNameWithoutExtSliceNotation(filepath.Base("%s"))
-	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
-	if err != nil {
-		log.Fatal(err)
-	}
+	dir := TempDir()
 
 	jar := filepath.Join(dir, temp, name+".jar")
 	if !DirExists(filepath.Join(dir, temp)) {
@@ -45,11 +42,6 @@ func main() {
 
 	args := []string{"-jar", jar}
 	if len(os.Args) > 1 {
-		if os.Args[1] == "-s" {
-			defer func() {
-				os.RemoveAll(filepath.Join(dir, temp))
-			}()
-		}
 		args = append(args, os.Args[1:]...)
 	}
 
@@ -60,7 +52,7 @@ func main() {
 
  	c := exec.Command(filepath.Join(dir, temp, "jre", "bin", java), args...)
 	c.Stdout = os.Stdout
-	err = c.Run()
+	err := c.Run()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -99,5 +91,30 @@ func DirExists(dir string) bool {
 	fs, err := os.Stat(dir)
 	return err == nil && fs.IsDir()
 }
+
+func UserHomeDir() string {
+	if runtime.GOOS == "windows" {
+		home := os.Getenv("HOMEDRIVE") + os.Getenv("HOMEPATH")
+		if home == "" {
+			home = os.Getenv("USERPROFILE")
+		}
+		return home
+	}
+	return os.Getenv("HOME")
+}
+
+func TempDir() string {
+	var (
+		home = UserHomeDir()
+		dir  = ""
+	)
+	if runtime.GOOS == "windows" {
+		dir = home + "\\AppData\\Local\\Temp\\Robomotion"
+	} else {
+		dir = "/tmp/robomotion"
+	}
+	return dir
+}
+
 `, platform, temp, jar)
 }
