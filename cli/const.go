@@ -11,6 +11,8 @@ func InitGo() {
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -42,17 +44,30 @@ func run(force bool) error {
 	name := FileNameWithoutExtSliceNotation(filepath.Base("%s"))
 	dir := TempDir()
 
-	jar := filepath.Join(dir, temp, name+".jar")
 	if force || !DirExists(filepath.Join(dir, temp)) {
-		ReadDir(temp+"/jre", dir)
-		d, err := Asset(temp+"/"+name+".jar")
+		err := ReadDir(temp, dir)
 		if err != nil {
 			return err
 		}
-
-		ioutil.WriteFile(jar, d, 0777)
 	}
 
+	d, err := Asset(temp+"/jutil.json")
+	if err != nil {
+		return err
+	}
+
+	cfg := map[string]interface{}{}
+	err = json.Unmarshal(d, &cfg)
+	if err != nil {
+		return err
+	}
+
+	jre, ok := cfg["jre"].(string)
+	if !ok {
+		return fmt.Errorf("Invalid jutil config file: jre not found")
+	}
+
+	jar := filepath.Join(dir, temp, name+".jar")
 	args := []string{"-jar", jar}
 	if len(os.Args) > 1 {
 		args = append(args, os.Args[1:]...)
@@ -63,9 +78,9 @@ func run(force bool) error {
 		java += ".exe"
 	}
 
- 	c := exec.Command(filepath.Join(dir, temp, "jre", "bin", java), args...)
+ 	c := exec.Command(filepath.Join(dir, temp, jre, java), args...)
 	c.Stdout = os.Stdout
-	err := c.Run()
+	err = c.Run()
 	if err != nil {
 		return err
 	}
@@ -73,27 +88,36 @@ func run(force bool) error {
 	return nil
 }
 
-func ReadDir(name, dir string) {
+func ReadDir(name, dir string) error {
 	os.MkdirAll(filepath.Join(dir, name), 0777)
 	files, err := AssetDir(name)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	for _, fName := range files {
 		fName = name + "/" + fName
 		info, err := AssetInfo(fName)
 		if err != nil || info.IsDir() {
-			ReadDir(fName, dir)
+			err = ReadDir(fName, dir)
+			if err != nil {
+				return err
+			}
 			continue
 		}
 
 		d, err := Asset(fName)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		}
-		ioutil.WriteFile(filepath.Join(dir, fName), d, 0777)
+
+		err = ioutil.WriteFile(filepath.Join(dir, fName), d, 0777)
+		if err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
 
 func FileNameWithoutExtSliceNotation(fileName string) string {

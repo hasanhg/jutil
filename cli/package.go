@@ -2,16 +2,21 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/mholt/archiver"
 	"github.com/spf13/cobra"
+	"github.com/tidwall/sjson"
 )
 
 var (
@@ -21,7 +26,7 @@ var (
 	platform string
 	arch     string
 	clean    bool
-	temp     = "temp"
+	temp     = "jutil"
 
 	packageCmd = &cobra.Command{
 		Use:   "package",
@@ -71,85 +76,37 @@ var (
 				log.Fatal(err)
 			}
 
-			/*
-				if strings.HasSuffix(jdk, ".tar.gz") {
-					jdkFile, err := os.Open(jdk)
-					if err != nil {
-						log.Fatal(err)
-					}
+			config := "{}"
+			lookup := filepath.Join("bin", "java")
+			if runtime.GOOS == "windows" {
+				lookup += ".exe"
+			}
 
-					gr, err := gzip.NewReader(jdkFile)
-					if err != nil {
-						log.Fatal(err)
-					}
-
-					tr := tar.NewReader(gr)
-					for {
-						header, err := tr.Next()
-						if err == io.EOF {
-							break
-						}
-
-						if header.FileInfo().IsDir() {
-							continue
-						}
-
-						outPath := filepath.Join(tempDir, header.Name)
-						err = os.MkdirAll(filepath.Dir(outPath), 0777)
-						if err != nil {
-							log.Fatal(err)
-						}
-
-						outFile, err := os.Create(outPath)
-						if err != nil {
-							log.Fatal(err)
-						}
-						defer outFile.Close()
-
-						_, err = io.Copy(outFile, tr)
-						if err != nil {
-							log.Fatal(err)
-						}
-					}
-				} else {
-
-					r, err := zip.OpenReader(jdk)
-					if err != nil {
-						log.Fatal(err)
-					}
-					defer r.Close()
-
-					for _, f := range r.File {
-						if f.FileInfo().IsDir() {
-							continue
-						}
-
-						outPath := filepath.Join(tempDir, f.Name)
-
-						err = os.MkdirAll(filepath.Dir(outPath), 0777)
-						if err != nil {
-							log.Fatal(err)
-						}
-
-						outFile, err := os.Create(outPath)
-						if err != nil {
-							log.Fatal(err)
-						}
-						defer outFile.Close()
-
-						src, err := f.Open()
-						if err != nil {
-							log.Fatal(err)
-						}
-						defer src.Close()
-
-						_, err = io.Copy(outFile, src)
-						if err != nil {
-							log.Fatal(err)
-						}
-					}
+			filepath.Walk(tempDir, func(path string, info fs.FileInfo, err error) error {
+				if strings.HasSuffix(path, lookup) {
+					p, _ := filepath.Rel(tempDir, filepath.Dir(path))
+					config, _ = sjson.Set(config, "jre", p)
+					return errors.New("")
 				}
-			*/
+				return nil
+			})
+
+			err = ioutil.WriteFile(filepath.Join(tempDir, "jutil.json"), []byte(config), 0777)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			bindataCmd := exec.Command("go", "get", "-u", "github.com/go-bindata/go-bindata/...")
+			err = bindataCmd.Run()
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			gbCmd := exec.Command("go-bindata", "-o", filepath.Join(tempDir, "bindata.go"), fmt.Sprintf("%s/...", temp))
+			err = gbCmd.Run()
+			if err != nil {
+				log.Fatal(err)
+			}
 
 			name := FileNameWithoutExtSliceNotation(filepath.Base(jar))
 
@@ -159,21 +116,9 @@ var (
 			}
 			defer maingo.Close()
 
-			bindataCmd := exec.Command("go", "get", "-u", "github.com/go-bindata/go-bindata/...")
-			err = bindataCmd.Run()
-			if err != nil {
-				log.Fatal(err)
-			}
-
 			gomodCmd := exec.Command("go", "mod", "init", name)
 			gomodCmd.Dir = tempDir
 			err = gomodCmd.Run()
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			gbCmd := exec.Command("go-bindata", "-o", filepath.Join(tempDir, "bindata.go"), fmt.Sprintf("%s/...", temp))
-			err = gbCmd.Run()
 			if err != nil {
 				log.Fatal(err)
 			}
