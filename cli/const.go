@@ -27,16 +27,14 @@ var (
 )
 
 func main() {
-	var (
-		err error = nil
-	)
+	err := run(false)
+	if err == nil {
+		return
+	}
 
-	for {
-		force := err != nil
-		err = run(force)
-		if force && err != nil {
-			log.Fatal(err)
-		}
+	err = run(true)
+	if err != nil {
+		log.Fatal(err)
 	}
 }
 
