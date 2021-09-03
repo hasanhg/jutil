@@ -46,34 +46,34 @@ var (
 			os.Mkdir(filepath.Join(temp), 0777)
 			err := os.MkdirAll(out, 0777)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal("out dir err:", err)
 			}
 
 			inJar, err := os.Open(jar)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal("open jar err:", err)
 			}
 			defer inJar.Close()
 
 			tempDir, err := filepath.Abs(temp)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal("abs tempdir err:", err)
 			}
 
 			outJar, err := os.Create(filepath.Join(tempDir, filepath.Base(jar)))
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal("creating out jar failed:", err)
 			}
 			defer outJar.Close()
 
 			_, err = io.Copy(outJar, inJar)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal("copy jar failed:", err)
 			}
 
 			err = archiver.Unarchive(jdk, tempDir)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal("unarchive failed:", err)
 			}
 
 			config := "{}"
@@ -93,50 +93,54 @@ var (
 
 			err = ioutil.WriteFile(filepath.Join(tempDir, "jutil.json"), []byte(config), 0777)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal("creating config file failed", err)
 			}
 
 			bindataCmd := exec.Command("go", "get", "-u", "github.com/go-bindata/go-bindata/...")
+			bindataCmd.Stderr = os.Stderr
 			err = bindataCmd.Run()
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal("get go-bindata failed:", err)
 			}
 
 			gbCmd := exec.Command("go-bindata", "-o", filepath.Join(tempDir, "bindata.go"), fmt.Sprintf("%s/...", temp))
+			gbCmd.Stderr = os.Stderr
 			err = gbCmd.Run()
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal("go-bindata failed:", err)
 			}
 
 			name := FileNameWithoutExtSliceNotation(filepath.Base(jar))
 
 			maingo, err := os.Create(filepath.Join(tempDir, "main.go"))
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal("creating main.go failed:", err)
 			}
 			defer maingo.Close()
 
 			gomodCmd := exec.Command("go", "mod", "init", name)
 			gomodCmd.Dir = tempDir
+			gomodCmd.Stderr = os.Stderr
 			err = gomodCmd.Run()
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal("go mod init failed:", err)
 			}
 
 			InitGo()
 
 			_, err = io.Copy(maingo, bytes.NewBuffer([]byte(src)))
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal("copy main.go failed:", err)
 			}
 
-			outName := fmt.Sprintf("%s", name)
+			outName := name
 			if platform == "windows" {
 				outName += ".exe"
 			}
 
 			goCmd := exec.Command("go", "build", "-o", filepath.Join(tempDir, "..", out, outName))
 			goCmd.Dir = tempDir
+			goCmd.Stderr = os.Stderr
 			goCmd.Env = os.Environ()
 			goCmd.Env = append(goCmd.Env, fmt.Sprintf("GOOS=%s", platform))
 			goCmd.Env = append(goCmd.Env, fmt.Sprintf("GOARCH=%s", arch))
@@ -145,7 +149,7 @@ var (
 
 			err = goCmd.Run()
 			if err != nil {
-				log.Fatal(err)
+				log.Fatal("go build failed:", err)
 			}
 
 			os.RemoveAll(temp)
