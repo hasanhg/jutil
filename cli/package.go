@@ -126,6 +126,14 @@ var (
 				log.Fatal("go mod init failed:", err)
 			}
 
+			gomodTidy := exec.Command("go", "mod", "tidy")
+			gomodTidy.Dir = tempDir
+			gomodTidy.Stderr = os.Stderr
+			err = gomodTidy.Run()
+			if err != nil {
+				log.Fatal("go mod tidy failed:", err)
+			}
+
 			InitGo()
 
 			_, err = io.Copy(maingo, bytes.NewBuffer([]byte(src)))
