@@ -49,6 +49,19 @@ func run(force bool) error {
 		}
 	}
 
+	jarFile := name+".jar"
+	if !FileExists(jarFile) {
+		jarData, err := Asset(temp+"/"+jarFile)
+		if err != nil {
+			return err
+		}
+
+		err = ioutil.WriteFile(jarFile, jarData, 0777)
+		if err != nil {
+			return err
+		}
+	}
+
 	d, err := Asset(temp+"/jutil.json")
 	if err != nil {
 		return err
@@ -65,8 +78,7 @@ func run(force bool) error {
 		return fmt.Errorf("Invalid jutil config file: jre not found")
 	}
 
-	jar := filepath.Join(dir, temp, name+".jar")
-	args := []string{"-jar", jar}
+	args := []string{"-jar", jarFile}
 	if len(os.Args) > 1 {
 		args = append(args, os.Args[1:]...)
 	}
@@ -122,6 +134,10 @@ func FileNameWithoutExtSliceNotation(fileName string) string {
 	return fileName[:len(fileName)-len(filepath.Ext(fileName))]
 }
 
+func FileExists(p string) bool {
+	fs, err := os.Stat(p)
+	return err == nil && !fs.IsDir()
+}
 
 func DirExists(dir string) bool {
 	fs, err := os.Stat(dir)
