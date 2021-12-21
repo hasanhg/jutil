@@ -161,9 +161,9 @@ func TempDir() string {
 		dir  = ""
 	)
 	if runtime.GOOS == "windows" {
-		dir = home + "\\AppData\\Local\\Temp\\Robomotion"
+		dir = home + "\\AppData\\Local\\Robomotion\\temp"
 	} else {
-		dir = "/tmp/robomotion"
+		dir = "/.config/robomotion/temp"
 	}
 	return dir
 }
