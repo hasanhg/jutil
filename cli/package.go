@@ -96,7 +96,7 @@ var (
 				log.Fatal("creating config file failed", err)
 			}
 
-			bindataCmd := exec.Command("go", "get", "-u", "github.com/go-bindata/go-bindata/...")
+			bindataCmd := exec.Command("go", "install", "github.com/go-bindata/go-bindata/go-bindata@latest")
 			bindataCmd.Stderr = os.Stderr
 			err = bindataCmd.Run()
 			if err != nil {
