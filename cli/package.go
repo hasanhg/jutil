@@ -1,22 +1,16 @@
 package cli
 
 import (
-	"bytes"
-	"errors"
-	"fmt"
 	"io"
 	"io/fs"
-	"io/ioutil"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
-	"strings"
 
 	"github.com/mholt/archiver"
 	"github.com/spf13/cobra"
-	"github.com/tidwall/sjson"
 )
 
 var (
@@ -26,7 +20,7 @@ var (
 	platform string
 	arch     string
 	clean    bool
-	temp     = "jutil"
+	temp     string
 
 	packageCmd = &cobra.Command{
 		Use:   "package",
@@ -38,15 +32,56 @@ var (
 				return
 			}
 
+			temp = out
 			if clean {
 				os.RemoveAll(out)
 				os.RemoveAll(temp)
 			}
 
-			os.Mkdir(filepath.Join(temp), 0777)
 			err := os.MkdirAll(out, 0777)
 			if err != nil {
 				log.Fatal("out dir err:", err)
+			}
+
+			tempDir, err := filepath.Abs(temp)
+			if err != nil {
+				log.Fatal("abs tempdir err:", err)
+			}
+
+			err = archiver.Unarchive(jdk, tempDir)
+			if err != nil {
+				log.Fatal("unarchive failed:", err)
+			}
+
+			err = filepath.WalkDir(tempDir, func(path string, d fs.DirEntry, err error) error {
+				if err != nil {
+					//return err
+				}
+
+				relPath, err := filepath.Rel(tempDir, path)
+				if err != nil {
+					return err
+				}
+
+				if relPath == "." {
+					return nil
+				}
+
+				ok, err := regexp.MatchString("^[a-zA-Z0-9\\-\\_.]+(\\/(bin|lib)(\\/[a-zA-Z0-9\\-\\_.]+|$)+|$)$", relPath)
+				if err != nil {
+					return err
+				}
+
+				if !ok && d.IsDir() {
+					os.RemoveAll(path)
+				} else if !ok {
+					os.Remove(path)
+				}
+
+				return nil
+			})
+			if err != nil {
+				log.Fatal("walkdir failed:", err)
 			}
 
 			inJar, err := os.Open(jar)
@@ -54,11 +89,6 @@ var (
 				log.Fatal("open jar err:", err)
 			}
 			defer inJar.Close()
-
-			tempDir, err := filepath.Abs(temp)
-			if err != nil {
-				log.Fatal("abs tempdir err:", err)
-			}
 
 			outJar, err := os.Create(filepath.Join(tempDir, filepath.Base(jar)))
 			if err != nil {
@@ -71,96 +101,10 @@ var (
 				log.Fatal("copy jar failed:", err)
 			}
 
-			err = archiver.Unarchive(jdk, tempDir)
+			err = generate(jar, out)
 			if err != nil {
-				log.Fatal("unarchive failed:", err)
+				log.Fatal("code generation failed:", err)
 			}
-
-			config := "{}"
-			lookup := filepath.Join("bin", "java")
-			if runtime.GOOS == "windows" {
-				lookup += ".exe"
-			}
-
-			filepath.Walk(tempDir, func(path string, info fs.FileInfo, err error) error {
-				if strings.HasSuffix(path, lookup) {
-					p, _ := filepath.Rel(tempDir, filepath.Dir(path))
-					config, _ = sjson.Set(config, "jre", p)
-					return errors.New("")
-				}
-				return nil
-			})
-
-			err = ioutil.WriteFile(filepath.Join(tempDir, "jutil.json"), []byte(config), 0777)
-			if err != nil {
-				log.Fatal("creating config file failed", err)
-			}
-
-			bindataCmd := exec.Command("go", "get", "-u", "github.com/go-bindata/go-bindata/...")
-			bindataCmd.Stderr = os.Stderr
-			err = bindataCmd.Run()
-			if err != nil {
-				log.Fatal("get go-bindata failed:", err)
-			}
-
-			gbCmd := exec.Command("go-bindata", "-o", filepath.Join(tempDir, "bindata.go"), fmt.Sprintf("%s/...", temp))
-			gbCmd.Stderr = os.Stderr
-			err = gbCmd.Run()
-			if err != nil {
-				log.Fatal("go-bindata failed:", err)
-			}
-
-			name := FileNameWithoutExtSliceNotation(filepath.Base(jar))
-
-			maingo, err := os.Create(filepath.Join(tempDir, "main.go"))
-			if err != nil {
-				log.Fatal("creating main.go failed:", err)
-			}
-			defer maingo.Close()
-
-			gomodCmd := exec.Command("go", "mod", "init", name)
-			gomodCmd.Dir = tempDir
-			gomodCmd.Stderr = os.Stderr
-			err = gomodCmd.Run()
-			if err != nil {
-				log.Fatal("go mod init failed:", err)
-			}
-
-			gomodTidy := exec.Command("go", "mod", "tidy")
-			gomodTidy.Dir = tempDir
-			gomodTidy.Stderr = os.Stderr
-			err = gomodTidy.Run()
-			if err != nil {
-				log.Fatal("go mod tidy failed:", err)
-			}
-
-			InitGo()
-
-			_, err = io.Copy(maingo, bytes.NewBuffer([]byte(src)))
-			if err != nil {
-				log.Fatal("copy main.go failed:", err)
-			}
-
-			outName := name
-			if platform == "windows" {
-				outName += ".exe"
-			}
-
-			goCmd := exec.Command("go", "build", "-o", filepath.Join(tempDir, "..", out, outName))
-			goCmd.Dir = tempDir
-			goCmd.Stderr = os.Stderr
-			goCmd.Env = os.Environ()
-			goCmd.Env = append(goCmd.Env, fmt.Sprintf("GOOS=%s", platform))
-			goCmd.Env = append(goCmd.Env, fmt.Sprintf("GOARCH=%s", arch))
-			//goCmd.Env = append(goCmd.Env, fmt.Sprintf("GOPATH=%s", os.Getenv("GOPATH")))
-			goCmd.Stderr = os.Stderr
-
-			err = goCmd.Run()
-			if err != nil {
-				log.Fatal("go build failed:", err)
-			}
-
-			os.RemoveAll(temp)
 		},
 	}
 )
@@ -168,7 +112,7 @@ var (
 func init() {
 
 	packageCmd.Flags().StringVar(&jar, "jar", "", "JAR file")
-	packageCmd.Flags().StringVar(&out, "out", ".", "Output directory")
+	packageCmd.Flags().StringVar(&out, "out", "dist", "Output directory")
 	packageCmd.Flags().StringVar(&jdk, "jdk", "", "JDK path")
 	packageCmd.Flags().StringVar(&platform, "platform", runtime.GOOS, "Operating system")
 	packageCmd.Flags().StringVar(&arch, "arch", runtime.GOARCH, "Operating system architecture")

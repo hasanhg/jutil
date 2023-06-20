@@ -3,6 +3,7 @@ module jutil
 go 1.15
 
 require (
+	github.com/dave/jennifer v1.6.1 // indirect
 	github.com/dsnet/compress v0.0.1 // indirect
 	github.com/frankban/quicktest v1.13.0 // indirect
 	github.com/go-bindata/go-bindata v3.1.2+incompatible // indirect
