@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
@@ -22,7 +23,7 @@ var (
 	platform string
 	arch     string
 	clean    bool
-	temp     string
+	verbose  bool
 
 	packageCmd = &cobra.Command{
 		Use:   "package",
@@ -34,24 +35,26 @@ var (
 				return
 			}
 
-			temp = out
 			if clean {
+				_log("Cleaning the output directory", fmt.Sprintf("%q", out))
 				err := os.RemoveAll(out)
 				if err != nil {
 					log.Fatal("remove out dir failed:", err)
 				}
 			}
 
+			_log("Creating the output directory", fmt.Sprintf("%q", out))
 			err := os.MkdirAll(out, 0777)
 			if err != nil {
 				log.Fatal("out dir err:", err)
 			}
 
-			tempDir, err := filepath.Abs(temp)
+			tempDir, err := filepath.Abs(out)
 			if err != nil {
 				log.Fatal("abs tempdir err:", err)
 			}
 
+			_log("Unarchive", jdk, "->", tempDir)
 			err = archiver.Unarchive(jdk, tempDir)
 			if err != nil {
 				log.Fatal("unarchive failed:", err)
@@ -59,7 +62,7 @@ var (
 
 			err = filepath.WalkDir(tempDir, func(path string, d fs.DirEntry, err error) error {
 				if err != nil {
-					//return err
+					return nil
 				}
 
 				relPath, err := filepath.Rel(tempDir, path)
@@ -77,9 +80,15 @@ var (
 				}
 
 				if !ok && d.IsDir() {
-					os.RemoveAll(path)
+					err = os.RemoveAll(path)
+					if err == nil {
+						_log("Removing", path)
+					}
 				} else if !ok {
-					os.Remove(path)
+					err = os.Remove(path)
+					if err == nil {
+						_log("Removing", path)
+					}
 				}
 
 				return nil
@@ -94,7 +103,9 @@ var (
 			}
 			defer inJar.Close()
 
-			outJar, err := os.Create(filepath.Join(tempDir, filepath.Base(jar)))
+			jarName := filepath.Join(tempDir, filepath.Base(jar))
+			_log("Copying", jar, "->", jarName)
+			outJar, err := os.Create(jarName)
 			if err != nil {
 				log.Fatal("creating out jar failed:", err)
 			}
@@ -105,12 +116,14 @@ var (
 				log.Fatal("copy jar failed:", err)
 			}
 
+			_log("Generating the wrapper code")
 			err = generate(jar, out)
 			if err != nil {
 				log.Fatal("code generation failed:", err)
 			}
 
 			mod := strings.TrimSuffix(filepath.Base(jar), ".jar")
+			_print("$ go mod init", mod)
 
 			modInitCmd := exec.Command("go", "mod", "init", mod)
 			modInitCmd.Stdout = os.Stdout
@@ -121,6 +134,7 @@ var (
 				log.Fatal("go mod init failed:", err)
 			}
 
+			_print("$ go mod tidy")
 			modTidyCmd := exec.Command("go", "mod", "tidy")
 			modTidyCmd.Stdout = os.Stdout
 			modTidyCmd.Stderr = os.Stderr
@@ -135,6 +149,7 @@ var (
 				binaryName += ".exe"
 			}
 
+			_print("$ go build -o", binaryName)
 			buildCmd := exec.Command("go", "build", "-o", binaryName)
 			buildCmd.Stdout = os.Stdout
 			buildCmd.Stderr = os.Stderr
@@ -150,11 +165,17 @@ var (
 				}
 
 				if d.IsDir() && path != out {
-					os.RemoveAll(path)
+					err = os.RemoveAll(path)
+					if err == nil {
+						_log("Removing", path)
+					}
 				}
 
 				if !d.IsDir() && filepath.Join(out, binaryName) != path {
-					os.Remove(path)
+					err = os.Remove(path)
+					if err == nil {
+						_log("Removing", path)
+					}
 				}
 
 				return nil
@@ -172,6 +193,7 @@ func init() {
 	packageCmd.Flags().StringVar(&platform, "platform", runtime.GOOS, "Operating system")
 	packageCmd.Flags().StringVar(&arch, "arch", runtime.GOARCH, "Operating system architecture")
 	packageCmd.Flags().BoolVar(&clean, "clean", false, "Clean packaging")
+	packageCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose mode")
 
 	rootCmd.AddCommand(packageCmd)
 
@@ -179,4 +201,16 @@ func init() {
 
 func FileNameWithoutExtSliceNotation(fileName string) string {
 	return fileName[:len(fileName)-len(filepath.Ext(fileName))]
+}
+
+func _log(v ...any) {
+	if verbose {
+		log.Println(v...)
+	}
+}
+
+func _print(a ...any) {
+	if verbose {
+		fmt.Println(a...)
+	}
 }
