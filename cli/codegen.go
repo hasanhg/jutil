@@ -33,7 +33,7 @@ func generate(jar, out string) error {
 				),
 			).Line(),
 			// cmd
-			jen.Id("cmd").Op(":=").Qual("exec", "Command").Call(jen.Id("java"), jen.Id("args").Op("...")),
+			jen.Id("cmd").Op(":=").Qual("os/exec", "Command").Call(jen.Id("java"), jen.Id("args").Op("...")),
 			jen.Id("cmd").Dot("Stdout").Op("=").Qual("os", "Stdout"),
 			jen.Id("cmd").Dot("Stderr").Op("=").Qual("os", "Stderr").Line(),
 			//
@@ -72,7 +72,8 @@ func generate(jar, out string) error {
 			jen.Id("outName").Op(":=").Id("name"),
 			jen.Id("parts").Op(":=").Qual("strings", "Split").Call(jen.Id("name"), jen.Qual("fmt", "Sprintf").Call(jen.Lit("%c"), jen.Qual("os", "PathSeparator"))),
 			jen.If(jen.Len(jen.Id("parts")).Op(">").Lit(1)).Block(
-				jen.Id("outName").Op("=").Qual("path/filepath", "Join").Call(jen.Id("parts").Index(jen.Lit(1).Op(":")).Op("...")),
+				jen.Id("parts").Index(jen.Lit(0)).Op("=").Id("configDir").Call(),
+				jen.Id("outName").Op("=").Qual("path/filepath", "Join").Call(jen.Id("parts").Op("...")),
 			).Line(),
 			jen.If(jen.Id("e").Dot("Name").Call().Op("==").Lit("java")).Block(
 				jen.Id("java").Op("=").Id("outName"),
@@ -85,8 +86,35 @@ func generate(jar, out string) error {
 			jen.If(jen.Err().Op("!=").Nil()).Block(
 				jen.Qual("log", "Fatal").Call(jen.Err()),
 			).Line(),
+		).Line().Line().
+		//
+		Func().Id("userHomeDir").Params().String().
+		Block(
+			jen.If(jen.Qual("runtime", "GOOS").Op("==").Lit("windows")).Block(
+				jen.Id("home").Op(":=").Qual("os", "Getenv").Call(jen.Lit("HOMEDRIVE")).Op("+").Qual("os", "Getenv").Call(jen.Lit("HOMEPATH")),
+				jen.If(jen.Id("home").Op("==").Lit("")).Block(
+					jen.Id("home").Op("=").Qual("os", "Getenv").Call(jen.Lit("USERPROFILE")),
+				),
+				jen.Return(jen.Id("home")),
+			),
+			jen.Return(jen.Qual("os", "Getenv").Call(jen.Lit("HOME"))),
+		).Line().Line().
+		//
+		Func().Id("configDir").Params().String().
+		Block(
+			jen.Var().Defs(
+				jen.Id("home").Op("=").Id("userHomeDir").Call(),
+				jen.Id("dir").Op("=").Lit(""),
+			),
+			jen.If(jen.Qual("runtime", "GOOS").Op("==").Lit("windows")).Block(
+				jen.Id("dir").Op("=").Id("home").Op("+").Lit("\\AppData\\Local\\Robomotion"),
+			).Else().Block(
+				jen.Id("dir").Op("=").Id("home").Op("+").Lit("/.config/robomotion"),
+			),
+			jen.Return(jen.Id("dir")),
 		)
 
+		//f.Render(os.Stdout)
 	err := f.Save(filepath.Join(out, "main.go"))
 	if err != nil {
 		return err

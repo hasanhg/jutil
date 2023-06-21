@@ -5,9 +5,11 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strings"
 
 	"github.com/mholt/archiver"
 	"github.com/spf13/cobra"
@@ -34,8 +36,10 @@ var (
 
 			temp = out
 			if clean {
-				os.RemoveAll(out)
-				os.RemoveAll(temp)
+				err := os.RemoveAll(out)
+				if err != nil {
+					log.Fatal("remove out dir failed:", err)
+				}
 			}
 
 			err := os.MkdirAll(out, 0777)
@@ -105,6 +109,57 @@ var (
 			if err != nil {
 				log.Fatal("code generation failed:", err)
 			}
+
+			mod := strings.TrimSuffix(filepath.Base(jar), ".jar")
+
+			modInitCmd := exec.Command("go", "mod", "init", mod)
+			modInitCmd.Stdout = os.Stdout
+			modInitCmd.Stderr = os.Stderr
+			modInitCmd.Dir = out
+			err = modInitCmd.Run()
+			if err != nil {
+				log.Fatal("go mod init failed:", err)
+			}
+
+			modTidyCmd := exec.Command("go", "mod", "tidy")
+			modTidyCmd.Stdout = os.Stdout
+			modTidyCmd.Stderr = os.Stderr
+			modTidyCmd.Dir = out
+			err = modTidyCmd.Run()
+			if err != nil {
+				log.Fatal("go mod tidy failed:", err)
+			}
+
+			binaryName := mod
+			if runtime.GOOS == "windows" {
+				binaryName += ".exe"
+			}
+
+			buildCmd := exec.Command("go", "build", "-o", binaryName)
+			buildCmd.Stdout = os.Stdout
+			buildCmd.Stderr = os.Stderr
+			buildCmd.Dir = out
+			err = buildCmd.Run()
+			if err != nil {
+				log.Fatal("go build failed:", err)
+			}
+
+			filepath.WalkDir(out, func(path string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return nil
+				}
+
+				if d.IsDir() && path != out {
+					os.RemoveAll(path)
+				}
+
+				if !d.IsDir() && filepath.Join(out, binaryName) != path {
+					os.Remove(path)
+				}
+
+				return nil
+			})
+
 		},
 	}
 )
